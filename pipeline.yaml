@@ -2,6 +2,7 @@ Description: >
   This template creates a continuous deployment pipeline which pulls
   code from GitHub, builds via CodeBuild, and deploys via CloudFormation.
   CodePipeline orchestrates this process.
+
 Parameters:
   ApplicationName: 
     Description: "Used to name resources provisioned by this template"
@@ -38,6 +39,11 @@ Parameters:
     Description: "AWS EC2 instance security group id"
     Type: String
 
+  GitHubToken:
+    Description: "GitHub access token"
+    Type: String
+    NoEcho: true
+
 Resources:
   
   S3BucketBuilds:
@@ -72,7 +78,7 @@ Resources:
               ActionTypeId:
                 Category: Source
                 Owner: ThirdParty
-                Version: 2
+                Version: 1
                 Provider: GitHub
               OutputArtifacts:
                 -  Name: Source
@@ -80,7 +86,7 @@ Resources:
                 Owner: mrk-qa
                 Repo: cloudformation-with-rspec-server-test
                 Branch: main
-                OAuthToken: arn:aws:codestar-connections:us-east-1:162256499619:connection/e58e7b51-f6ee-4ef3-bd9f-89b4c44768f9 #46063829
+                OAuthToken: !Ref GitHubToken
               Region: !Ref AWS::Region
         - Name: Build
           Actions:
