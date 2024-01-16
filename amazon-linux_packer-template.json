@@ -1,0 +1,73 @@
+{
+    "variables": {
+        "aws_region": "{{ env `AWS_REGION` }}",
+        "aws_account_id": "{{ env `AWS_ACCOUNT_ID` }}",
+        "aws_vpc_id": "{{ env `AWS_VPC_ID` }}",
+        "aws_subnet_id": "{{ env `AWS_SUBNET_ID` }}",
+	"ami_instance_type": "t2.micro",
+        "ami_name": "amazon-linux-rspec-test",
+        "working_dir": "{{ env `WORKING_DIR` }}"
+    },
+
+    "builders": [{
+        "type": "amazon-ebs",
+	"tags": {
+	    "Name": "{{ user `ami_name` }}",
+	    "buildUUID": "{{ uuid }}"
+	},
+	"run_tags": {
+	    "Name": "{{ user `ami_name` }} Packer"
+	},
+        "region": "{{user `aws_region`}}",
+	"vpc_id": "{{ user `aws_vpc_id` }}",
+	"subnet_id": "{{ user `aws_subnet_id` }}",
+        "instance_type": "{{ user `ami_instance_type` }}",
+        "ami_name": "{{ user `ami_name` }}-{{ isotime | clean_resource_name }}",
+        "ami_description": "Customized Amazon Linux",
+        "associate_public_ip_address": "true",
+        "source_ami_filter": {
+            "filters": {
+                "virtualization-type": "hvm",
+                "name": "amzn2-ami-kernel-5.10-hvm-2.0.20231218.0-x86_64-gp2",
+                "root-device-type": "ebs"
+            },
+            "owners": [ "amazon" ],
+            "most_recent": true
+        },
+	"ssh_timeout": "5m",
+	"ssh_pty": "true",
+        "ssh_username": "ec2-user"
+    }],
+
+    "provisioners": [{
+        "type": "shell",
+        "inline": [
+        "sudo yum update -y",
+	"sudo yum install -y httpd httpd-tools mod_ssl",
+	"sudo systemctl enable httpd",
+	"sudo systemctl start httpd",
+	"sudo mkdir -p /var/www/html",
+	"sudo chown ec2-user /var/www/html",
+	"sudo chmod o+r /var/www/html",
+	"cd /var/www/html",
+	"echo \"<html><h1>Hello from Apache</h1></html>\" > hello.html"
+        ]
+    },
+    {
+	"type": "file",
+        "source": "{{ user `working_dir` }}",
+	"destination": "/tmp/{{ user `ami_name` }}"
+    },
+    {
+	"type": "shell",
+        "execute_command": "chmod +x {{ .Path }}; '{{ .Path }}' /tmp/{{ user `ami_name` }}/rspec_tests",
+	"script": "./scripts/rspec.sh"
+    }],
+
+
+    "post-processors": [{
+        "type": "manifest",
+        "output": "manifest.json",
+        "strip_path": true
+    }]
+}
