@@ -1,0 +1,41 @@
+---
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo "Installing HashiCorp Packer..."
+      - echo "Environment Variables ===> ${SecurityGroupId} ${VpcId} ${SubnetId} ${Region} and ${AccountId} ${Keypair}"
+      - curl -qL -o packer.zip https://releases.hashicorp.com/packer/1.6.6/packer_1.6.6_linux_amd64.zip && unzip packer.zip
+      - chmod +x packer
+      - echo "Installing jq..."
+      - curl -qL -o jq https://stedolan.github.io/jq/download/linux64/jq && chmod +x ./jq
+      - echo "Validating amazon-linux_packer-template.json"
+      - echo "$(./packer --version)"
+      - export WORKING_DIR="${PWD}"
+      - ./packer validate -var 'WORKING_DIR=${WORKING_DIR}' -var 'AWS_VPC_ID=${VpcId}' -var 'AWS_SUBNET_ID=${SubnetId}' -var 'AWS_REGION=${Region}' -var 'AWS_ACCOUNT_ID=${AccountId}' ./amazon-linux_packer-template.json
+        #- ./packer validate -var 'AWS_REGION=us-east-1' -var 'WORKING_DIR=${WORKING_DIR}' ./amazon-linux_packer-template.json
+  build:
+    commands:
+      - echo "Configuring AWS credentials"
+      - curl -qL -o aws_credentials.json http://169.254.170.2/$AWS_CONTAINER_CREDENTIALS_RELATIVE_URI > aws_credentials.json
+      - aws configure set region $AWS_REGION
+      - aws configure set aws_access_key_id `jq -r '.AccessKeyId' ./aws_credentials.json`
+      - aws configure set aws_secret_access_key `jq -r '.SecretAccessKey' ./aws_credentials.json`
+      - aws configure set aws_session_token `jq -r '.Token' ./aws_credentials.json`
+      - echo "Building HashiCorp Packer template, amazon-linux_packer-template.json"
+      - export WORKING_DIR="${PWD}"
+      - ./packer build -var 'WORKING_DIR=${WORKING_DIR}' -var 'AWS_VPC_ID=${VpcId}' -var 'AWS_SUBNET_ID=${SubnetId}' -var 'AWS_REGION=${Region}' -var 'AWS_ACCOUNT_ID=${AccountId}' ./amazon-linux_packer-template.json
+        #- ./packer build -var 'AWS_REGION=us-east-1' -var 'WORKING_DIR=${WORKING_DIR}' ./amazon-linux_packer-template.json
+      - ls -lrt
+      - cat ./manifest.json
+      - AMIID=$( cat ./manifest.json | jq -r '.builds[].artifact_id | split(":")[1]' | tail -1)
+      - echo "${AMIID}"
+      - aws ec2 run-instances --image-id "${AMIID}" --count 1 --instance-type t2.micro --key-name "${Keypair}" --subnet-id "${SubnetId}" --security-group-ids "${SecurityGroupId}" --region "${Region}"
+  post_build:
+    commands:
+      - echo "HashiCorp Packer build completed on `date`"
+
+artifacts:
+  files:
+    - ./manifest.json
