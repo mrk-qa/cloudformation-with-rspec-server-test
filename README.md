@@ -34,11 +34,11 @@ rspec_tests
   |-- scripts
   |   |-- rspec.sh
 ```
-## 📑 Init Stack
+## 📑 Init and Destroy Stack
 
 *Configure ${variables} for the CLI before running the command*
 
-Command to start the stack: `aws cloudformation create-stack --stack-name rspec-server-test --template-body file://pipeline.yaml --parameters ParameterKey=RepositoryName,ParameterValue=cloudformation-with-rspec-server-test ParameterKey=ApplicationName,ParameterValue=cloudformation-with-rspec ParameterKey=SecurityGroupId,ParameterValue=${sg-example} ParameterKey=VpcId,ParameterValue=${vpc-example} ParameterKey=SubnetId,ParameterValue=${subnet-example} ParameterKey=Region,ParameterValue=us-east-2 ParameterKey=Keypair,ParameterValue=${ec2-example} ParameterKey=AccountId,ParameterValue=${162*} ParameterKey=GitHubToken,ParameterValue=${ghp_1*example} --capabilities CAPABILITY_NAMED_IAM`
+Command to init the stack: `aws cloudformation create-stack --stack-name rspec-server-test --template-body file://pipeline.yaml --parameters ParameterKey=RepositoryName,ParameterValue=cloudformation-with-rspec-server-test ParameterKey=ApplicationName,ParameterValue=cloudformation-with-rspec ParameterKey=SecurityGroupId,ParameterValue=${sg-example} ParameterKey=VpcId,ParameterValue=${vpc-example} ParameterKey=SubnetId,ParameterValue=${subnet-example} ParameterKey=Region,ParameterValue=us-east-2 ParameterKey=Keypair,ParameterValue=${ec2-example} ParameterKey=AccountId,ParameterValue=${162*} ParameterKey=GitHubToken,ParameterValue=${ghp_1*example} --capabilities CAPABILITY_NAMED_IAM`
 
 Command to destroy the stack: `aws cloudformation delete-stack --stack-name rspec-server-test`
 
