@@ -1,0 +1,289 @@
+Description: >
+  This template creates a continuous deployment pipeline which pulls
+  code from GitHub, builds via CodeBuild, and deploys via CloudFormation.
+  CodePipeline orchestrates this process.
+Parameters:
+  ApplicationName: 
+    Description: "Used to name resources provisioned by this template"
+    Type: String
+    Default: unittest-for-infra-code
+    AllowedPattern: '[a-z0-9-]+'
+
+  RepositoryName: 
+    Description: "AWS Code Commit repository Name"
+    Type: String
+    Default: "cicd-infra-unit-test"
+
+  VpcId:
+    Description: "VPC ID"
+    Type: String
+
+  SubnetId:
+    Description: "Subnet ID"
+    Type: String
+
+  Keypair:
+    Description: "ssh keypair"
+    Type: String
+
+  AccountId:
+    Description: "AWS Account ID"
+    Type: String
+
+  Region:
+    Description: "AWS Region"
+    Type: String
+
+  SecurityGroupId:
+    Description: "AWS EC2 instance security group id"
+    Type: String
+
+Resources:
+  
+  S3BucketBuilds:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Sub "${ApplicationName}-builds"
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: aws:kms
+      Tags:
+        - Key: source
+          Value: !Ref ApplicationName
+
+  CodePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub "${ApplicationName}-pipeline"
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      RestartExecutionOnUpdate: false
+      ArtifactStore: 
+        Type: S3
+        Location: !Ref S3BucketBuilds
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: GitHubSource
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Version: 2
+                Provider: GitHub
+              OutputArtifacts:
+                -  Name: Source
+              Configuration:
+                Owner: mrk-qa
+                Repo: cloudformation-with-rspec-server-test
+                Branch: main
+                OAuthToken: arn:aws:codestar-connections:us-east-1:162256499619:connection/e58e7b51-f6ee-4ef3-bd9f-89b4c44768f9 #46063829
+              Region: !Ref AWS::Region
+        - Name: Build
+          Actions:
+            - Name: CodeBuild
+              InputArtifacts:
+                - Name: Source
+              ActionTypeId: 
+                Category: Build
+                Owner: AWS
+                Version: 1
+                Provider: CodeBuild
+              OutputArtifacts:
+                - Name: Built
+              Configuration: 
+                ProjectName: !Ref CodeBuild
+              Region: !Ref AWS::Region
+              Namespace: "SourceVariables"
+
+  CodeBuild:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "${ApplicationName}-build-project"
+      Description: "Build project for the application"
+      ServiceRole: !Ref CodeBuildRole
+      Source:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:5.0
+        Type: LINUX_CONTAINER
+        ImagePullCredentialsType: "CODEBUILD"
+        PrivilegedMode: false
+        EnvironmentVariables:
+          - Name: ARTIFACT_S3_BUCKET
+            Value: !Ref S3BucketBuilds
+          - Name: APPLICATION_NAME
+            Value: !Ref ApplicationName
+          - Name: VpcId
+            Value: !Ref VpcId
+          - Name: SubnetId
+            Value: !Ref SubnetId
+          - Name: Keypair
+            Value: !Ref Keypair
+          - Name: AccountId
+            Value: !Ref AccountId
+          - Name: Region
+            Value: !Ref Region
+          - Name: SecurityGroupId
+            Value: !Ref SecurityGroupId
+      ServiceRole: !Ref CodeBuildRole
+      TimeoutInMinutes: 60
+      QueuedTimeoutInMinutes: 480
+      Artifacts:
+        Name: !Ref ApplicationName
+        Type: CODEPIPELINE
+
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      RoleName: !Sub "${ApplicationName}-codepipeline-role-${AWS::Region}"
+      AssumeRolePolicyDocument: 
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "codepipeline.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies: 
+        - PolicyName: !Sub "${ApplicationName}-codepipeline-policy-${AWS::Region}"
+          PolicyDocument: 
+            Statement:
+              - Effect: "Allow"
+                Resource:
+                  - !Sub "arn:aws:s3:::${S3BucketBuilds}/*"
+                Action:
+                  - "s3:PutObject"
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:GetBucketVersioning"
+              - Effect: "Allow"
+                Resource: "*"
+                Action:
+                  - "codecommit:CancelUploadArchive"
+                  - "codecommit:GetBranch"
+                  - "codecommit:GetCommit"
+                  - "codecommit:GetRepository"
+                  - "codecommit:GetUploadArchiveStatus"
+                  - "codecommit:UploadArchive"
+                  - "codebuild:BatchGetBuilds"
+                  - "codebuild:StartBuild"
+                  - "codebuild:BatchGetBuildBatches"
+                  - "codebuild:StartBuildBatch"
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      Path: /
+      RoleName: !Sub "${ApplicationName}-codebuild-role-${AWS::Region}"
+      AssumeRolePolicyDocument: 
+        Statement:
+          - Effect: "Allow"
+            Principal: 
+              Service: "codebuild.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Policies: 
+        - PolicyName: !Sub "${ApplicationName}-codebuild-policy-${AWS::Region}"
+          PolicyDocument:
+            Statement:
+              - Effect: "Allow"
+                Resource: "*"
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                  - "ec2:AttachVolume"
+                  - "ec2:AuthorizeSecurityGroupIngress"
+                  - "ec2:CopyImage"
+                  - "ec2:CreateImage"
+                  - "ec2:CreateKeypair"
+                  - "ec2:CreateSecurityGroup"
+                  - "ec2:CreateSnapshot"
+                  - "ec2:CreateTags"
+                  - "ec2:CreateVolume"
+                  - "ec2:DeleteKeyPair"
+                  - "ec2:DeleteSecurityGroup"
+                  - "ec2:DeleteSnapshot"
+                  - "ec2:DeleteVolume"
+                  - "ec2:DeregisterImage"
+                  - "ec2:DescribeImageAttribute"
+                  - "ec2:DescribeImages"
+                  - "ec2:DescribeInstances"
+                  - "ec2:DescribeInstanceStatus"
+                  - "ec2:DescribeRegions"
+                  - "ec2:DescribeSecurityGroups"
+                  - "ec2:DescribeSnapshots"
+                  - "ec2:DescribeSubnets"
+                  - "ec2:DescribeTags"
+                  - "ec2:DescribeVolumes"
+                  - "ec2:DetachVolume"
+                  - "ec2:GetPasswordData"
+                  - "ec2:ModifyImageAttribute"
+                  - "ec2:ModifyInstanceAttribute"
+                  - "ec2:ModifySnapshotAttribute"
+                  - "ec2:RegisterImage"
+                  - "ec2:RunInstances"
+                  - "ec2:StopInstances"
+                  - "ec2:TerminateInstances" 
+              - Effect: "Allow"
+                Resource: 
+                  - !Sub "arn:aws:s3:::${S3BucketBuilds}/*"
+                Action:
+                  - "s3:GetObject"
+                  - "s3:GetObjectVersion"
+                  - "s3:PutObject"
+
+  EventsRule:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Name: !Sub "${ApplicationName}-trigger-codepipeline"
+      Description: "Amazon CloudWatch Events rule to automatically start your pipeline when a change occurs in the AWS CodeCommit source repository and branch. Deleting this may prevent changes from being detected in that pipeline. Read more: http://docs.aws.amazon.com/codepipeline/latest/userguide/pipelines-about-starting.html"
+      EventPattern: !Sub "{\"source\":[\"aws.codecommit\"],\"detail-type\":[\"CodeCommit Repository State Change\"],\"resources\":[\"arn:aws:codecommit:${AWS::Region}:${AWS::AccountId}:${RepositoryName}\"],\"detail\":{\"event\":[\"referenceCreated\",\"referenceUpdated\"],\"referenceType\":[\"branch\"],\"referenceName\":[\"master\"]}}"
+      State: "ENABLED"
+      Targets: 
+        - 
+          Arn: !Sub "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipeline}"
+          Id: "codepipeline-infra-unit-test-serverspec"
+          RoleArn: !GetAtt EventRole.Arn
+      EventBusName: "default"
+
+  EventRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+        Path: "/service-role/"
+        RoleName: !Sub "${ApplicationName}-EventRole"
+        AssumeRolePolicyDocument: "{\"Version\":\"2012-10-17\",\"Statement\":[{\"Effect\":\"Allow\",\"Principal\":{\"Service\":\"events.amazonaws.com\"},\"Action\":\"sts:AssumeRole\"}]}"
+        MaxSessionDuration: 3600
+        ManagedPolicyArns: 
+          - !Ref EventManagedPolicy
+
+  EventManagedPolicy:
+      Type: "AWS::IAM::ManagedPolicy"
+      Properties:
+          ManagedPolicyName: !Sub "${ApplicationName}-EventManagedPolicy"
+          Path: "/service-role/"
+          PolicyDocument: !Sub |
+              {
+                  "Version": "2012-10-17",
+                  "Statement": [
+                      {
+                          "Effect": "Allow",
+                          "Action": [
+                              "codepipeline:StartPipelineExecution"
+                          ],
+                          "Resource": [
+                              "arn:aws:codepipeline:${AWS::Region}:${AWS::AccountId}:${CodePipeline}"
+                          ]
+                        }
+                    ]
+                }
+
+Outputs:
+  CodePipelineURL:
+    Description: "The URL to access the deployment pipeline"
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/codepipeline/home?region=${AWS::Region}#/view/${CodePipeline}"
